@@ -55,11 +55,20 @@ func (c *clientConn) ReadFrame() (hdr, data []byte, err error) {
 
 func newClientConn(ctx context.Context, tr grpc.ClientTransport, addr string) (*clientConn, error) {
 	ri := rpcinfo.GetRPCInfo(ctx)
-	var svcName string
-	if ri.Invocation().PackageName() == "" {
-		svcName = ri.Invocation().ServiceName()
+
+	// grpc method format /package.Service/Method
+	// If the full path is specified by caller (begins with "/"), use it.
+	var fullPath string
+	if methodName := ri.Invocation().MethodName(); len(methodName) > 0 && methodName[0] == '/' {
+		fullPath = methodName
 	} else {
-		svcName = fmt.Sprintf("%s.%s", ri.Invocation().PackageName(), ri.Invocation().ServiceName())
+		var svcName string
+		if ri.Invocation().PackageName() == "" {
+			svcName = ri.Invocation().ServiceName()
+		} else {
+			svcName = fmt.Sprintf("%s.%s", ri.Invocation().PackageName(), ri.Invocation().ServiceName())
+		}
+		fullPath = fmt.Sprintf("/%s/%s", svcName, methodName)
 	}
 
 	host := ri.To().ServiceName()
@@ -72,9 +81,8 @@ func newClientConn(ctx context.Context, tr grpc.ClientTransport, addr string) (*
 	}
 
 	s, err := tr.NewStream(ctx, &grpc.CallHdr{
-		Host: host,
-		// grpc method format /package.Service/Method
-		Method: fmt.Sprintf("/%s/%s", svcName, ri.Invocation().MethodName()),
+		Host:   host,
+		Method: fullPath,
 	})
 	if err != nil {
 		return nil, err
